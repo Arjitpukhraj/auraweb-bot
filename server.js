@@ -18,9 +18,20 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+try {
+    if (fs.existsSync('session.zip')) {
+        console.log('📦 Extracting session.zip...');
+        execSync('unzip -q -o session.zip || true');
+        console.log('✅ Session extracted successfully.');
+    }
+} catch (e) {
+    console.log('⚠️ Warning during unzip (safe to ignore):', e.message);
+}
 
 dotenv.config({ path: path.join(__dirname, '../automation/config.env') });
 
