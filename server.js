@@ -9,7 +9,7 @@
 
 import * as baileys from '@whiskeysockets/baileys';
 const makeWASocket = baileys.default;
-const { useMultiFileAuthState, DisconnectReason } = baileys;
+const { useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason } = baileys;
 
 import pino from 'pino';
 import QRCode from 'qrcode';
@@ -42,7 +42,7 @@ const ARJIT_PHONE = process.env.ARJIT_DIRECT_PHONE || '+919071122560';
 // 🛡️ PERSONAL PROTECTION FILTER:
 // AI will NEVER auto-reply to any number in this list (family, friends & contacts from mobile).
 const PERSONAL_WHITELIST = [
-    '919071122560', '1800407267864', '919654297000', '919930683505', '917231919133',
+    '919071122560', '1800407267864', '919654297000', '919930683505',
     '919664229837', '918764723831', '917023627001', '919998811047', '917297884140',
     '918739875825', '917375082590', '918278604903', '919783838772', '918619080492',
     '917665377315', '919024967276', '919928918894', '919660099398', '919054805495',
@@ -73,6 +73,8 @@ const PERSONAL_LAST10_SET = new Set(
 function isPersonalShielded(senderNumber) {
     const clean = (senderNumber || '').replace(/[^0-9]/g, '');
     if (!clean) return false;
+    // Arjit's test phone - ALWAYS allowed to test and chat
+    if (clean.includes('7231919133') || clean.includes('9982427308')) return false;
     if (PERSONAL_WHITELIST.includes(clean)) return true;
     const last10 = clean.slice(-10);
     if (last10.length === 10 && PERSONAL_LAST10_SET.has(last10)) return true;
@@ -93,6 +95,7 @@ const CANDIDATE_MODELS = [
 // 🧠 Multi-turn conversation memory (stores last 10 messages per chat)
 const chatHistories = new Map();
 const sentByBotIds = new Set();
+const sentMessagesCache = new Map();
 
 function getHistory(chatId) {
     if (!chatHistories.has(chatId)) {
@@ -191,13 +194,19 @@ async function startWhatsAppBot() {
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
     const sock = makeWASocket({
-        auth: state,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
         printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
         browser: ['AuraWeb AI Gateway', 'Chrome', '1.0.0'],
         syncFullHistory: false,
         markOnlineOnConnect: true,
         getMessage: async (key) => {
+            if (key?.id && sentMessagesCache.has(key.id)) {
+                return sentMessagesCache.get(key.id);
+            }
             return undefined;
         }
     });
@@ -260,19 +269,22 @@ async function startWhatsAppBot() {
 
             if (!text.trim()) continue;
 
-            // 🧪 1. SELF-TEST MODE (Testing from your own phone via "Message Yourself")
-            const isSelfMessage = Boolean(msg.key.fromMe);
-
-            if (isSelfMessage) {
-                console.log(`\n🧪 [SELF-TEST] (+${senderNumber}): "${text}"`);
-                const userPrompt = text.replace(/^#test\s*/i, '').replace(/^test:\s*/i, '').trim();
-
-                // Generate human AI response as Vikas with memory
-                const aiReply = await callGeminiAI(`self_${senderNumber}`, userPrompt);
-                console.log(`[Vikas Replying to Self-Test]:\n${aiReply}\n`);
-
-                const sent = await sock.sendMessage(senderJid, { text: aiReply });
-                if (sent?.key?.id) sentByBotIds.add(sent.key.id);
+            // 🧪 1. Messages sent by this phone (outgoing messages by Arjit)
+            if (msg.key.fromMe) {
+                // If it is in "Message Yourself" and explicitly tagged with #test
+                const isSelfChat = senderJid.includes('9071122560');
+                if (isSelfChat && text.toLowerCase().startsWith('#test')) {
+                    const userPrompt = text.replace(/^#test\s*/i, '').trim();
+                    console.log(`\n🧪 [SELF-TEST #test] (+${senderNumber}): "${userPrompt}"`);
+                    const aiReply = await callGeminiAI(`self_${senderNumber}`, userPrompt);
+                    console.log(`[Vikas Replying to Self-Test]:\n${aiReply}\n`);
+                    const sent = await sock.sendMessage(senderJid, { text: aiReply });
+                    if (sent?.key?.id) {
+                        sentByBotIds.add(sent.key.id);
+                        if (sent.message) sentMessagesCache.set(sent.key.id, sent.message);
+                    }
+                }
+                // Skip all other outgoing messages so bot never interferes with Arjit's own typing
                 continue;
             }
 
@@ -301,7 +313,16 @@ async function startWhatsAppBot() {
 
             // Send reply
             const sent = await sock.sendMessage(senderJid, { text: aiReply });
-            if (sent?.key?.id) sentByBotIds.add(sent.key.id);
+            if (sent?.key?.id) {
+                sentByBotIds.add(sent.key.id);
+                if (sent.message) {
+                    sentMessagesCache.set(sent.key.id, sent.message);
+                    if (sentMessagesCache.size > 200) {
+                        const first = sentMessagesCache.keys().next().value;
+                        sentMessagesCache.delete(first);
+                    }
+                }
+            }
             
             // Check if user requested a demo/template
             const lowerText = text.toLowerCase();
