@@ -35,8 +35,8 @@ try {
 
 dotenv.config({ path: path.join(__dirname, '../automation/config.env') });
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6IdCynLE9vkyztX8uVGL5dnbIahaMO51528FbNRi-kfSQ';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6JDaPXY4NMFBJ0CK4jG4o495HwTfw1qlvXGoiQBx3Quvg';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const ARJIT_PHONE = process.env.ARJIT_DIRECT_PHONE || '+919071122560';
 
 // 🛡️ PERSONAL PROTECTION FILTER:
@@ -86,8 +86,8 @@ let connectionStatus = 'WAITING_FOR_SCAN';
 let connectedUser = null;
 
 const CANDIDATE_MODELS = [
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-3.8-flash',
+    'gemini-3.5-flash-lite'
 ];
 
 // 🧠 Multi-turn conversation memory (stores last 10 messages per chat)
@@ -127,19 +127,21 @@ async function callGeminiAI(chatId, userText) {
 
     for (const model of CANDIDATE_MODELS) {
         try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-            const contents = [
-                {
-                    role: 'user',
-                    parts: [{ text: `System instruction:\n${SYSTEM_PROMPT}` }]
+            // FORCE the correct key, ignoring environment variables to prevent Render cache issues
+            const FORCE_KEY = 'AQ.Ab8RN6JDaPXY4NMFBJ0CK4jG4o495HwTfw1qlvXGoiQBx3Quvg';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${FORCE_KEY}`;
+            
+            const requestBody = {
+                systemInstruction: {
+                    parts: [{ text: SYSTEM_PROMPT }]
                 },
-                ...history
-            ];
+                contents: history
+            };
 
             const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents })
+                body: JSON.stringify(requestBody)
             });
 
             const data = await res.json();
