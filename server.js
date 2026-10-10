@@ -86,10 +86,8 @@ let connectionStatus = 'WAITING_FOR_SCAN';
 let connectedUser = null;
 
 const CANDIDATE_MODELS = [
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
-    'gemini-3.7-flash',
-    'gemini-3.8-flash'
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
 ];
 
 // 🧠 Multi-turn conversation memory (stores last 10 messages per chat)
