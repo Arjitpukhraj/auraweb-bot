@@ -35,15 +35,49 @@ try {
 
 dotenv.config({ path: path.join(__dirname, '../automation/config.env') });
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6I3NCs9H_zxoMWt2PU53pUvpEX64ZJ6Q5GlIPXKn01A3Q';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6IdCynLE9vkyztX8uVGL5dnbIahaMO51528FbNRi-kfSQ';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 const ARJIT_PHONE = process.env.ARJIT_DIRECT_PHONE || '+919071122560';
 
 // 🛡️ PERSONAL PROTECTION FILTER:
-// Add phone numbers (with country code, e.g. 919829000000) that AI must NEVER touch.
+// AI will NEVER auto-reply to any number in this list (family, friends & contacts from mobile).
 const PERSONAL_WHITELIST = [
-    // '919829000000',
+    '919071122560', '1800407267864', '919654297000', '919930683505', '917231919133',
+    '919664229837', '918764723831', '917023627001', '919998811047', '917297884140',
+    '918739875825', '917375082590', '918278604903', '919783838772', '918619080492',
+    '917665377315', '919024967276', '919928918894', '919660099398', '919054805495',
+    '918003031489', '917073228441', '917742043891', '917990893591', '916376148941',
+    '919352187466', '917597347210', '919104637538', '919983214417', '9170283666403',
+    '917340145929', '918302551480', '916377201821', '918239986154', '917073254492',
+    '918904345072', '919351974207', '919983253180', '919916220307', '919694885176',
+    '916367222589', '919509549657', '917000770007', '919828147599', '919358757244',
+    '919982427308', '916367316689', '919352015910', '918104710610', '919610279310',
+    '918278632913', '917877011745', '917710955555', '918955147364', '917023998760',
+    '917691831772', '919398426006', '919024955396', '919509729688', '917891530030',
+    '917665323827', '919351210241', '917851939793', '917339709661', '916375579136',
+    '918796321758', '919358558280', '919256784284', '919982244818', '918209401143',
+    '919079803356', '919982356200', '918955018484', '918306364906', '918302419801',
+    '917665618720', '918114403817', '918949396303', '919358048327', '917229999245',
+    '917678128593', '919829284100', '919636237461', '919982423221', '918000197251',
+    '919358429121', '919960698251', '916367794353', '917073880472', '919982155567',
+    '919982108085', '918290481956', '919461062705', '918788438219', '917073232876',
+    '919261827945', '918619003340', '917976084576', '919351900395', '918290425990',
+    '918890332908', '918079068014', '919680843626', '919166827437', '917023660963',
+    '917357833358', '916377131569'
 ];
+
+const PERSONAL_LAST10_SET = new Set(
+    PERSONAL_WHITELIST.map(num => String(num).replace(/[^0-9]/g, '').slice(-10)).filter(n => n.length === 10)
+);
+
+function isPersonalShielded(senderNumber) {
+    const clean = (senderNumber || '').replace(/[^0-9]/g, '');
+    if (!clean) return false;
+    if (PERSONAL_WHITELIST.includes(clean)) return true;
+    const last10 = clean.slice(-10);
+    if (last10.length === 10 && PERSONAL_LAST10_SET.has(last10)) return true;
+    return false;
+}
 
 let currentQRDataUrl = null;
 let connectionStatus = 'WAITING_FOR_SCAN';
@@ -51,8 +85,9 @@ let connectedUser = null;
 
 const CANDIDATE_MODELS = [
     'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-flash-lite-latest'
+    'gemini-flash-lite-latest',
+    'gemini-3.7-flash',
+    'gemini-3.8-flash'
 ];
 
 // 🧠 Multi-turn conversation memory (stores last 10 messages per chat)
@@ -66,23 +101,24 @@ function getHistory(chatId) {
     return chatHistories.get(chatId);
 }
 
-const SYSTEM_PROMPT = `You are Vikas, Senior Developer & Technical Partner at AuraWeb Technologies Pvt. Ltd. (working directly alongside Founder & CTO Arjit).
+const SYSTEM_PROMPT = `You are Vikas, Senior Technical Consultant & Development Partner at AuraWeb Technologies Pvt. Ltd. (working alongside Founder & CTO Arjit).
 You are directly chatting with a prospective client on WhatsApp or Instagram.
 
 VOICE & BEHAVIOR (CRITICAL RULES):
-1. Language: Professional but natural conversational Hindi / Hinglish. Sound 100% like an experienced tech professional.
-2. DO NOT introduce yourself directly as "Main Vikas hoon, Arjit jaisa lagta hoon ya uski company mein hoon". Keep it strictly professional, direct, and focused on the work.
+1. Language: Professional, polite, consultative conversational Hindi / Hinglish. Sound 100% like a seasoned human professional.
+2. FIRST CONSULT & DISCUSS REQUIREMENTS:
+   - NEVER jump straight to "hum project start karne ke liye ready hain" or rushing into work.
+   - First listen to the client, understand their needs, and discuss their exact requirements and scope politely.
+   - Ask 1 or 2 relevant, thoughtful questions to clarify what they need (e.g. industry, target audience, preferred style/format, reference work).
 3. ADAPT TO USER'S DOMAIN LIKE AN EXPERT:
-   - EXCEL / GOOGLE SHEETS: Talk like a spreadsheet architect. Quote realistically: ₹499 - ₹1,499 for sheets/formulas, ₹1,999 - ₹4,499 for full automated dashboards.
-   - CANVA / GRAPHICS: Talk like a creative designer. Quote: ₹499 - ₹1,999.
-   - WEBSITES / APPS: Talk like a senior full-stack developer. Quote ₹1,999 - ₹3,999 for 1-page fast sites; ₹5,999 - ₹12,999 for full multi-page portals; ₹15,000+ for custom web apps.
+   - RESUME / CV / PORTFOLIO: Ask about their field/job role, target company, whether they need an ATS-friendly format, modern corporate look, or graphic design. Discuss previous CV details if available.
+   - EXCEL / GOOGLE SHEETS: Discuss what data they track, formula requirements, or if they need automated invoicing/dashboards.
+   - CANVA / GRAPHICS: Discuss branding colors, poster/flyer purpose, or social media pack details.
+   - WEBSITES / APPS: Discuss core user features, number of pages, or reference websites they like.
 4. DEMO / PROTOTYPE REQUESTS:
-   - If user asks for a demo or template, NEVER keep asking endless questions! Say enthusiastically:
-     "Ji bilkul! Aap hamara live studio showcase dekh sakte hain: https://auraweb-pvt-ltd.netlify.app
-     Aapne agar koi photo bheji hai, toh hum uske hisaab se 48 ghante me live customized demo (prototype) ready karke share karte hain bina full payment ke. Aap reference bhejte hi hum turant template par kaam shuru kar dete hain!"
-5. CLOSING PSYCHOLOGY:
-   - Guide the conversation confidently to close the deal. Make them feel secure about the "50/50 Protected Escrow" (Pehle live demo dekho aur approve karo, fir payment). Assure them they are in expert hands.
-6. Keep messages short, crisp, natural (2-4 sentences max). No giant walls of text.`;
+   - If user asks for a demo or template:
+     "Ji bilkul! Hamara official live showcase aap https://auraweb-pvt-ltd.netlify.app par dekh sakte hain. Aur aapke requirement ke hisaab se hum pehle 48 ghante me live sample/prototype discuss karke bana dete hain (50/50 Protected Escrow me). Aapke paas koi reference ho toh zaroor share karein!"
+5. Keep messages warm, conversational, crisp (2-3 sentences max). No pushy sales talk. Always focus on understanding and discussion first.`;
 
 async function callGeminiAI(chatId, userText) {
     const history = getHistory(chatId);
@@ -127,19 +163,21 @@ async function callGeminiAI(chatId, userText) {
 
     // Smart Multi-Domain Context Fallback (Vikas Persona)
     const lower = (userText || '').toLowerCase();
-    let humanFallback = "Haanji bilkul! Thoda sa details share kar dijiye aapka kya requirement hai, main turant review kar leta hoon.";
-    if (lower.includes('excel') || lower.includes('sheet') || lower.includes('macro') || lower.includes('vlookup') || lower.includes('dashboard')) {
-        humanFallback = "Haanji! Excel me hum dynamic dashboards, automated invoicing sheets, aur custom formulas sab handle karte hain. Exactly kis type ka data ya automation setup karwana hai aapko?";
+    let humanFallback = "Haanji bilkul! Thoda sa details share kar dijiye aapki kya requirement hai, hum pehle discuss kar lete hain fir best solution suggest karunga.";
+    if (lower.includes('resume') || lower.includes('cv') || lower.includes('biodata') || lower.includes('bio data')) {
+        humanFallback = "Haanji bilkul! Resume ke liye pehle format aur details discuss kar lete hain—aap kis role ke liye apply kar rahe hain aur kitna experience hai? Agar koi purani CV ya reference ho toh zaroor share kijiye.";
+    } else if (lower.includes('excel') || lower.includes('sheet') || lower.includes('macro') || lower.includes('vlookup') || lower.includes('dashboard')) {
+        humanFallback = "Haanji! Excel me dynamic dashboards, automated sheets, aur formulas me aapki exact requirement kya hai? Thoda discuss kar lete hain taaki best setup suggest kar sakoon.";
     } else if (lower.includes('canva') || lower.includes('design') || lower.includes('banner') || lower.includes('poster') || lower.includes('flyer')) {
-        humanFallback = "Haanji bilkul! Canva creatives me hum social media post packs, admission posters, reels covers aur complete branding design karte hain. Aapke brand ya coaching ke liye kis type ka creative banana hai?";
+        humanFallback = "Haanji bilkul! Graphics aur creatives me aapko kis type ke designs chahiye? Thoda brand ya concept discuss kar lete hain.";
     } else if (lower.includes('demo') || lower.includes('sample') || lower.includes('prototype') || lower.includes('template')) {
         humanFallback = "Ji bilkul! Hamara official live showcase aap https://auraweb-pvt-ltd.netlify.app par dekh sakte hain. Aur aapke project ke liye hum 48 ghante me direct live demo ready karke dete hain bina advance payment ke (50/50 Protected Escrow). Aapke paas koi reference photo ya idea ho toh zaroor share karein!";
     } else if (lower.includes('price') || lower.includes('kitna') || lower.includes('rate') || lower.includes('cost') || lower.includes('charges')) {
-        humanFallback = "Haanji! Hamari pricing project ke scope par depend karti hai—Excel aur graphics ₹499-₹1,999 se, aur fast websites ₹1,999 se start hoti hain. Aur sabse acchi baat: 50/50 Protected Escrow hai, pehle aap live demo dekhkar approve karenge. Aapko kis service me kaam karwana hai?";
+        humanFallback = "Haanji! Hamari pricing project ke exact scope par depend karti hai—pehle aapki requirements samajh lete hain, uske baad realistic quote decide karenge. Aur 50/50 Protected Escrow hai, pehle live demo dekhkar approve karenge.";
     } else if (lower.includes('app') || lower.includes('software') || lower.includes('game') || lower.includes('portal')) {
-        humanFallback = "Haanji, custom mobile apps aur web platforms hum full-stack high-speed stack par build karte hain. App me users ke liye main features kya-kya chahiye honge?";
+        humanFallback = "Haanji, mobile apps aur web platforms hum full-stack high-speed stack par build karte hain. App ke main features aur workflow pehle discuss kar lete hain.";
     } else if (lower.includes('hi') || lower.includes('hello') || lower.includes('hey')) {
-        humanFallback = "Haanji hello! Boliye aapko website, app, Excel automation ya Canva design me se kisme help chahiye? Humari team turant project start karne ke liye ready hai.";
+        humanFallback = "Haanji hello! Boliye aapko kis service ya project me help chahiye? Pehle aapki requirement samajh lete hain aur detail me discuss kar lete hain.";
     }
 
     history.push({ role: 'model', parts: [{ text: humanFallback }] });
@@ -156,7 +194,12 @@ async function startWhatsAppBot() {
         auth: state,
         printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
-        browser: ['AuraWeb AI Gateway', 'Chrome', '1.0.0']
+        browser: ['AuraWeb AI Gateway', 'Chrome', '1.0.0'],
+        syncFullHistory: false,
+        markOnlineOnConnect: true,
+        getMessage: async (key) => {
+            return undefined;
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -233,23 +276,28 @@ async function startWhatsAppBot() {
                 continue;
             }
 
-            // 🛡️ 2. Personal Whitelist Filter
-            if (PERSONAL_WHITELIST.includes(senderNumber)) {
-                console.log(`[Shield Active]: Ignored personal contact +${senderNumber}.`);
+            // 🛡️ 2. Personal Protection Shield (All contacts from mobile)
+            if (isPersonalShielded(senderNumber)) {
+                console.log(`[Shield Active]: Ignored personal contact +${senderNumber} (Saved Contact Shield).`);
                 continue;
             }
 
-            // 🌟 3. Inbound Client Message (from 7231919133 or any client)
-            const isSpecialTestPhone = senderNumber.includes('7231919133');
-            if (isSpecialTestPhone) {
-                console.log(`\n🎯 [VIP TEST PHONE: +${senderNumber}]: "${text}"`);
-            } else {
-                console.log(`\n[Client Inbound] from +${senderNumber}: "${text}"`);
-            }
+            // 🌟 3. Inbound Prospective Client Message
+            console.log(`\n[Client Inbound] from +${senderNumber}: "${text}"`);
+
+            // Acknowledge read and show typing indicator to force WhatsApp E2E key handshake
+            try {
+                await sock.readMessages([msg.key]);
+                await sock.sendPresenceUpdate('composing', senderJid);
+            } catch (e) {}
 
             // Generate AI response with conversation history
             const aiReply = await callGeminiAI(senderNumber, text);
             console.log(`[Vikas Replying to +${senderNumber}]:\n${aiReply}\n`);
+
+            try {
+                await sock.sendPresenceUpdate('paused', senderJid);
+            } catch (e) {}
 
             // Send reply
             const sent = await sock.sendMessage(senderJid, { text: aiReply });
