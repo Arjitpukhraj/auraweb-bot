@@ -126,7 +126,15 @@ VOICE & BEHAVIOR (CRITICAL RULES):
 
 async function callGeminiAI(chatId, userText) {
     const history = getHistory(chatId);
-    history.push({ role: 'user', parts: [{ text: userText }] });
+    
+    // IMPORTANT: Gemini API crashes if roles do not alternate strictly (user, model, user)
+    // WhatsApp users often send multiple messages back-to-back, creating (user, user) which breaks the API.
+    // We must merge consecutive messages from the same role.
+    if (history.length > 0 && history[history.length - 1].role === 'user') {
+        history[history.length - 1].parts[0].text += '\n' + userText;
+    } else {
+        history.push({ role: 'user', parts: [{ text: userText }] });
+    }
 
     for (const model of CANDIDATE_MODELS) {
         try {
